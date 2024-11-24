@@ -1,7 +1,7 @@
 ipykernel
 numpy
 pandas
-scikit-learn
+scikit-learn==1.5.2
 matplotlib
-tensorflow
-keras
+tensorflow==2.18.0
+keras==3.6.0
