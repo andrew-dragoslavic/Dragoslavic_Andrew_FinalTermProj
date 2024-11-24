@@ -1,0 +1,4 @@
+- For this project python 3.9.6 was used and pip is needed to install the required packages
+- Import the entire repository including the Data and CSV file
+- Run `pip install -r requirements.txt` to get all the necessary packages
+- Go to the working directory and run `python Dragoslavic_Andrew_FinalTermProj.py` or `python3 Dragoslavic_Andrew_FinalTermProj.py`
