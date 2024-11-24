@@ -5,10 +5,10 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, brier_scor
 from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
 from sklearn import svm
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from keras.src.models import Sequential
+from keras.src.layers import LSTM, Dense, Dropout, Input
 from sklearn.preprocessing import StandardScaler
-from tensorflow.keras.optimizers import Adam
+from keras.src.optimizers import Adam
 
 def calculate_metrics(FP, FN, TP, TN):
     P = TP + FN
@@ -108,98 +108,111 @@ def lstm(X_train, X_test, y_train, y_test):
         'roc_auc': roc_auc
     }
 
-def plot_roc(fpr, tpr, roc_auc):
+def plot_roc(fpr, tpr, roc_auc, model_name):
     plt.figure()
     plt.plot(fpr, tpr, color='blue', label=f'ROC curve (AUC = {roc_auc:.2f})')
     plt.plot([0, 1], [0, 1], color='gray', linestyle='--')  # Diagonal line for random guess
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.title(f'Receiver Operating Characteristic (ROC) Curve - {model_name}')
     plt.legend(loc="lower right")
     plt.show()
 
-def k_fold(X, Y, K, model):
+def eval_model(model_name, model_function, X_train, X_test, y_train, y_test, all_y_true, all_y_prob, cumulative_cm, metrics_dict, metrics_list, i):
+    res = model_function(X_train, X_test, y_train, y_test)
+    y_pred = res['y_pred']
+    y_prob = res['y_prob']
+    brier_score = res['brier_score']
+    roc_auc = res['roc_auc']
+    all_y_true.extend(y_test)
+    all_y_prob.extend(y_prob)
+    cm = confusion_matrix(y_test, y_pred, labels=[1,0])
+    TP, FN, FP, TN = cm[0,0], cm[0,1], cm[1,0], cm[1,1]
+    cumulative_cm += cm
+    fold_metrics = calculate_metrics(FP,FN,TP,TN)
+    fold_metrics['Brier Score'] = brier_score
+    fold_metrics['AUC'] = roc_auc
+    fold_metrics['Fold'] = i
+    metrics_dict[model_name] = {key: value for key, value in fold_metrics.items() if key != 'Fold'}
+    metrics_list.append(fold_metrics)
+
+    return fold_metrics
+
+def process_metrics_dataframe(metrics_list):
+    df = pd.DataFrame(metrics_list)
+    df["Fold"] = df["Fold"].astype(object)
+    averages = df.mean(numeric_only=True)
+    averages["Fold"] = "Average"  
+    df = pd.concat([df, pd.DataFrame([averages])], ignore_index=True)
+    df.set_index("Fold", inplace=True)
+    return df
+
+def k_fold(X, Y, K):
     kf = KFold(n_splits=K, shuffle = True, random_state=42)
-    metrics_list = []
-    cumulative_cm = np.zeros((2, 2), dtype=int)
-    all_y_true = []
-    all_y_prob = []
+    metrics_list_rf, metrics_list_clf, metrics_list_lstm = [], [], []
+    metrics_dict = {}
+    cumulative_cm_rf,cumulative_cm_clf, cumulative_cm_lstm = np.zeros((2, 2), dtype=int),np.zeros((2, 2), dtype=int),np.zeros((2, 2), dtype=int)
+    all_y_true_rf, all_y_true_clf, all_y_true_lstm  = [], [], []
+    all_y_prob_rf, all_y_prob_clf, all_y_prob_lstm = [], [], []
 
     for i, (train_index, test_index) in enumerate(kf.split(X), start = 1):
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = Y.iloc[train_index], Y.iloc[test_index]
 
-        if model == 'Random Forest':
-            rf = random_forest(X_train, X_test, y_train, y_test)
-            y_pred = rf['y_pred']
-            y_prob = rf['y_prob']
-            brier_score = rf['brier_score']
-            roc_auc = rf['roc_auc']
+        eval_model(
+            model_name='Random Forest', model_function=random_forest,
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
+            all_y_true=all_y_true_rf, all_y_prob=all_y_prob_rf, cumulative_cm=cumulative_cm_rf,
+            metrics_dict=metrics_dict, metrics_list=metrics_list_rf, i = i
+        )
 
-            all_y_true.extend(y_test)
-            all_y_prob.extend(y_prob)
-        elif model == 'SVM':
-            clf = support_vector_machine(X_train, X_test, y_train, y_test)
-            y_pred = clf['y_pred']
-            y_prob = clf['y_prob']
-            brier_score = clf['brier_score']
-            roc_auc = clf['roc_auc']       
-            
-            all_y_true.extend(y_test)
-            all_y_prob.extend(y_prob)
-        elif model == 'LSTM':
-            lstm_results = lstm(X_train,X_test, y_train, y_test)
-            y_pred = lstm_results['y_pred']
-            y_pred_prob = lstm_results['y_prob']
-            brier_score = lstm_results['brier_score']
-            roc_auc = lstm_results['roc_auc']
+        eval_model(
+            model_name='SVM', model_function=support_vector_machine,
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
+            all_y_true=all_y_true_clf, all_y_prob=all_y_prob_clf, cumulative_cm=cumulative_cm_clf,
+            metrics_dict=metrics_dict, metrics_list=metrics_list_clf, i = i
+        )
 
-            all_y_true.extend(y_test)
-            all_y_prob.extend(y_pred_prob)
+        eval_model(
+            model_name='LSTM', model_function=lstm,
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
+            all_y_true=all_y_true_lstm, all_y_prob=all_y_prob_lstm, cumulative_cm=cumulative_cm_lstm,
+            metrics_dict=metrics_dict, metrics_list=metrics_list_lstm, i = i
+        )
 
-        cm = confusion_matrix(y_test, y_pred, labels=[1, 0])
-        TP = cm[0, 0]
-        FN = cm[0, 1]
-        FP = cm[1, 0]
-        TN = cm[1, 1]
+        df = pd.DataFrame(metrics_dict)
+        print(f"Fold {i}:\n{df}")
 
-        cumulative_cm += cm # Add current fold's confusion matrix to the cumulative matrix
+    df_rf = process_metrics_dataframe(metrics_list_rf)
+    df_clf = process_metrics_dataframe(metrics_list_clf)
+    df_lstm = process_metrics_dataframe(metrics_list_lstm)
 
-        fold_metrics = calculate_metrics(FP,FN,TP,TN)
-        fold_metrics['Fold'] = i
-        fold_metrics['Brier Score'] = brier_score
-        fold_metrics['AUC'] = roc_auc
-        metrics_list.append(fold_metrics)
+    print(f"\nRandom Forest Metrics:\n{df_rf}")
+    print(f"\nSVM Metrics:\n{df_clf}")
+    print(f"\nLSTM Metrics:\n{df_lstm}")
 
-    metrics_df = pd.DataFrame(metrics_list)
-    metrics_df.set_index('Fold', inplace=True)
+    models = [
+        ('Random Forest', all_y_true_rf, all_y_prob_rf, cumulative_cm_rf),
+        ('SVM', all_y_true_clf, all_y_prob_clf, cumulative_cm_clf),
+        ('LSTM', all_y_true_lstm, all_y_prob_lstm, cumulative_cm_lstm)
+    ]
 
-    avg_metrics = metrics_df.mean().to_dict()
-    avg_metrics['Fold'] = 'Average'
-    metrics_df = pd.concat([metrics_df, pd.DataFrame([avg_metrics]).set_index('Fold')])
+    for model_name, y_true, y_prob, cm in models:
+        fpr, tpr, _ = roc_curve(y_true, y_prob)
+        roc_auc = roc_auc_score(y_true, y_prob)
+        plot_roc(fpr,tpr, roc_auc, model_name)
 
-    print(f"Metrics Table Across All Folds for {model}:\n")
-    print(metrics_df)
-
-    disp = ConfusionMatrixDisplay(confusion_matrix=cumulative_cm, display_labels=[1,0])
-    disp.plot(cmap='Blues')
-    plt.title('Cumulative Confusion Matrix After All Folds')
-    plt.show()
-
-    roc_auc = roc_auc_score(all_y_true, all_y_prob)
-    fpr, tpr, threshold = roc_curve(all_y_true, all_y_prob)
-
-    plot_roc(fpr,tpr,roc_auc)
-
-    return metrics_df
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[1,0])
+        disp.plot(cmap='Blues')
+        plt.title(f'Cumulative Confusion Matrix After All Folds - {model_name}')
+        plt.show()
 
 data = pd.read_csv("Data/heart.csv")
+pd.set_option('display.width', 1000)
 pd.set_option('display.max_rows', None)  # Show all rows
 pd.set_option('display.max_columns', None)
 
 X = data.drop('target', axis=1)
 Y = data['target']
 
-avg_rf = k_fold(X,Y,10, 'Random Forest')
-avg_svm = k_fold(X,Y,10, 'SVM')
-avg_lstm = k_fold(X,Y,10, 'LSTM')
+k_fold(X,Y,10)
