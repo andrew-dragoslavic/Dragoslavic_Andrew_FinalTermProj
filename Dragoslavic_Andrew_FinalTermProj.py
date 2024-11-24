@@ -26,10 +26,14 @@ def calculate_metrics(FP, FN, TP, TN):
     error_rate = (FP+FN)/(TP+TN+FP+FN) if (TP+TN+FP+FN) != 0 else 0
 
     BACC = (TPR+TNR)/2
-    TSS = (TP/(TP+FN))-(FP/(FP+TN))
-    HSS = (2*((TP*TN)-(FP*FN)))/(((TP+FN)*(FN+TN)) + ((TP+FP)*(FP+TN)))
+    TSS = ((TP / (TP + FN)) - (FP / (FP + TN))) if (TP + FN > 0 and FP + TN > 0) else 0
+    HSS = (2*((TP*TN)-(FP*FN)))/(((TP+FN)*(FN+TN)) + ((TP+FP)*(FP+TN))) if ((((TP+FN)*(FN+TN)) + ((TP+FP)*(FP+TN))) > 0) else 0
 
     return {
+        'TP': TP,
+        'TN': TN,
+        'FP': FP,
+        'FN': FN,
         'TPR': TPR,
         'TNR': TNR,
         'FPR': FPR,
