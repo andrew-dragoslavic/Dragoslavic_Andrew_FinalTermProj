@@ -122,7 +122,7 @@ def plot_roc(fpr, tpr, roc_auc, model_name):
     plt.legend(loc="lower right")
     plt.show()
 
-def eval_model(model_name, model_function, X_train, X_test, y_train, y_test, all_y_true, all_y_prob, cumulative_cm, metrics_dict, metrics_list, i):
+def eval_model(model_name, model_function, X_train, X_test, y_train, y_test, all_y_true, all_y_prob, cumulative_cm, metrics_dict, metrics_list, i, reference_probs, test_index):
     res = model_function(X_train, X_test, y_train, y_test)
     y_pred = res['y_pred']
     y_prob = res['y_prob']
@@ -130,11 +130,16 @@ def eval_model(model_name, model_function, X_train, X_test, y_train, y_test, all
     roc_auc = res['roc_auc']
     all_y_true.extend(y_test)
     all_y_prob.extend(y_prob)
+
+    reference_brier_score = brier_score_loss(y_test, reference_probs)
+    brier_skill_score = 1 - (brier_score / reference_brier_score) if reference_brier_score != 0 else None
+
     cm = confusion_matrix(y_test, y_pred, labels=[1,0])
     TP, FN, FP, TN = cm[0,0], cm[0,1], cm[1,0], cm[1,1]
     cumulative_cm += cm
     fold_metrics = calculate_metrics(FP,FN,TP,TN)
     fold_metrics['Brier Score'] = brier_score
+    fold_metrics['Brier Skill Score'] = brier_skill_score
     fold_metrics['AUC'] = roc_auc
     fold_metrics['Fold'] = i
     metrics_dict[model_name] = {key: value for key, value in fold_metrics.items() if key != 'Fold'}
@@ -162,26 +167,28 @@ def k_fold(X, Y, K):
     for i, (train_index, test_index) in enumerate(kf.split(X), start = 1):
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = Y.iloc[train_index], Y.iloc[test_index]
+        reference_prob = y_train.mean()  
+        reference_probs = pd.Series([reference_prob] * len(test_index), index=test_index) 
 
         eval_model(
             model_name='Random Forest', model_function=random_forest,
             X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
             all_y_true=all_y_true_rf, all_y_prob=all_y_prob_rf, cumulative_cm=cumulative_cm_rf,
-            metrics_dict=metrics_dict, metrics_list=metrics_list_rf, i = i
+            metrics_dict=metrics_dict, metrics_list=metrics_list_rf, i = i, reference_probs=reference_probs, test_index=test_index
         )
 
         eval_model(
             model_name='SVM', model_function=support_vector_machine,
             X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
             all_y_true=all_y_true_clf, all_y_prob=all_y_prob_clf, cumulative_cm=cumulative_cm_clf,
-            metrics_dict=metrics_dict, metrics_list=metrics_list_clf, i = i
+            metrics_dict=metrics_dict, metrics_list=metrics_list_clf, i = i, reference_probs=reference_probs, test_index=test_index
         )
 
         eval_model(
             model_name='LSTM', model_function=lstm,
             X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
             all_y_true=all_y_true_lstm, all_y_prob=all_y_prob_lstm, cumulative_cm=cumulative_cm_lstm,
-            metrics_dict=metrics_dict, metrics_list=metrics_list_lstm, i = i
+            metrics_dict=metrics_dict, metrics_list=metrics_list_lstm, i = i, reference_probs=reference_probs, test_index=test_index
         )
 
         df = pd.DataFrame(metrics_dict)
@@ -212,7 +219,7 @@ def k_fold(X, Y, K):
         plt.show()
 
 data = pd.read_csv("Data/heart.csv")
-pd.set_option('display.width', 1000)
+pd.set_option('display.width', 100)
 pd.set_option('display.max_rows', None)  # Show all rows
 pd.set_option('display.max_columns', None)
 
